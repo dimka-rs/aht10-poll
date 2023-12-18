@@ -17,6 +17,8 @@ int main(int argc, const char *argv[])
     int temp, hum;
     float temp_f, hum_f;
     const char* dev = argv[1];
+    unsigned char reset[] = {0xE1, 0x08, 0x00};
+    unsigned char measure[] = {0xAC, 0x33, 0x00};
     unsigned char buf[BUFSIZE];
 
     if (argc < 2)
@@ -35,35 +37,46 @@ int main(int argc, const char *argv[])
 
     if (ioctl(file, I2C_SLAVE, addr) < 0)
     {
-        fprintf(stderr, "Failed to ioctl %s: %s\n", dev, strerror(errno));
-        return 1;
+        fprintf(stderr, "Failed to ioctl: %s\n", strerror(errno));
+        goto err;
     }
 
-    if(read(file, buf, BUFSIZE) != BUFSIZE)
+    if (write(file, reset, sizeof(reset)) != sizeof(reset))
     {
-        fprintf(stderr, "Failed to read from %s: %s\n", dev, strerror(errno));
+        fprintf(stderr, "Failed to write reset: %s\n", strerror(errno));
+        goto err;
     }
 
-    for (int i = 0; i < BUFSIZE; i++)
+    if (write(file, measure, sizeof(measure)) != sizeof(measure))
     {
-        printf(" %02X", buf[i]);
+        fprintf(stderr, "Failed to write measure: %s\n", strerror(errno));
+        goto err;
     }
-    printf("\n");
+
+    /* Sleep 100 ms while sensor is measuring */
+    usleep(100000);
+
+    if (read(file, buf, BUFSIZE) != BUFSIZE)
+    {
+        fprintf(stderr, "Failed to read: %s\n", strerror(errno));
+        goto err;
+    }
+
 
     hum = ((int)buf[1] << 16) + ((int)buf[2] << 8) + (int)buf[3];
     hum = hum >> 4;
-    printf("Hum: %X\n", hum);
-
     hum_f = ((float)hum / (2 << 19)) * 100;
 
     temp = ((int)buf[3] << 16) + ((int)buf[4] << 8) + (int)buf[5];
     temp &= 0x0FFFFF;
-    printf("Temp: %X\n", temp);
     temp_f = (float)temp / (2 << 19) * 200 - 50;
 
-    printf("Humidity: %.2f %%\n", hum_f);
+    printf("Humidity:    %.2f %%\n", hum_f);
     printf("Temperature: %.2f C\n", temp_f);
 
-    close(file);
     return 0;
+
+err:
+    close(file);
+    return 1;
 }
